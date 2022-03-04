@@ -268,6 +268,16 @@ class DequeBuffer(Buffer):
             sampled_data.append(slice_)
         return sampled_data
 
+    def _sample_by_rolling_window_in_group(
+            self,
+            size: int,
+            groupby: str,
+            rolling_window: int = None,
+            replace: bool = False,
+            storage: deque = None
+    ) -> List[List[BufferedData]]:
+        pass
+
     def _create_index(self, meta_key: str):
         self.meta_index[meta_key] = deque(maxlen=self.storage.maxlen)
         for data in self.storage:
