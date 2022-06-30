@@ -124,7 +124,7 @@ class InverseDynamicsModel(nn.Module):
         '''
         train transition model, given pair of states return action (s0,s1 ---> a0)
         Input:
-        training_set: states transition 
+        training_set: states transition
         n_epoch: number of epoches
         learning_rate: learning rate for optimizer
         weight_decay: weight decay for optimizer
@@ -315,8 +315,8 @@ def serial_pipeline_bco(
             stop, reward = evaluator.eval(learner.save_checkpoint, learner.train_iter, collector.envstep)
             if stop:
                 break
-        if cfg.policy.continuous:
-            collect_kwargs = {'eps': 0}
+        # if cfg.policy.continuous:
+        #     collect_kwargs = {'eps': 0}
         if epoch == 0:
             new_data = collector.collect(
                 n_episode=cfg.policy.collect.n_episode, train_iter=learner.train_iter, policy_kwargs=collect_kwargs

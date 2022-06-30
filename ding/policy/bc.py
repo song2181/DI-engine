@@ -43,7 +43,15 @@ class BehaviourCloningPolicy(Policy):
             warmup_epoch=3,
             optimizer='SGD'
         ),
-        collect=dict(unroll_len=1, ),
+        collect=dict(
+            unroll_len=1,
+            noise=False,
+            noise_sigma=0.2,
+            noise_range=dict(
+                min=-0.5,
+                max=0.5,
+            ),
+        ),
         eval=dict(),
         other=dict(replay_buffer=dict(replay_buffer_size=10000, )),
     )
@@ -160,12 +168,22 @@ class BehaviourCloningPolicy(Policy):
         """
         self._unroll_len = self._cfg.collect.unroll_len
         if self._cfg.continuous:
-            self._collect_model = model_wrap(self._model, wrapper_name='base')
+            # self._collect_model = model_wrap(self._model, wrapper_name='base')
+            self._collect_model = model_wrap(
+                self._model,
+                wrapper_name='action_noise',
+                noise_type='gauss',
+                noise_kwargs={
+                    'mu': 0.0,
+                    'sigma': self._cfg.collect.noise_sigma.start
+                },
+                noise_range=self._cfg.collect.noise_range
+            )
         else:
             self._collect_model = model_wrap(self._model, wrapper_name='eps_greedy_sample')
         self._collect_model.reset()
 
-    def _forward_collect(self, data: Dict[int, Any], eps: float) -> Dict[int, Any]:
+    def _forward_collect(self, data: Dict[int, Any],**kwargs) -> Dict[int, Any]:
         r"""
         Overview:
             Forward function for collect mode with eps_greedy
@@ -181,9 +199,10 @@ class BehaviourCloningPolicy(Policy):
         self._collect_model.eval()
         with torch.no_grad():
             if self._cfg.continuous:
-                output = self._collect_model.forward(data)
+                # output = self._collect_model.forward(data)
+                output = self._collect_model.forward(data, **kwargs)
             else:
-                output = self._collect_model.forward(data, eps=eps)
+                output = self._collect_model.forward(data, **kwargs)
         if self._cuda:
             output = to_device(output, 'cpu')
         output = default_decollate(output)

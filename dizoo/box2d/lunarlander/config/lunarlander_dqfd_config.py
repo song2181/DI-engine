@@ -34,7 +34,7 @@ lunarlander_dqfd_config = dict(
             # Users should add their own model path here. Model path should lead to a model.
             # Absolute path is recommended.
             # In DI-engine, it is ``exp_name/ckpt/ckpt_best.pth.tar``.
-            model_path='model_path_placeholder',
+            model_path='/home/DI-engine/dizoo/box2d/lunarlander/config/ckpt_best.pth.tar',
             # Cut trajectories into pieces with length "unroll_len".
             unroll_len=1,
         ),

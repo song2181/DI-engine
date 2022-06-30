@@ -1,7 +1,7 @@
 from easydict import EasyDict
 
 bipedalwalker_bco_config = dict(
-    exp_name='bipedalwalker_bco_seed0',
+    exp_name='bipedalwalker_bco_noidecay',
     env=dict(
         env_id='BipedalWalker-v3',
         collector_env_num=8,
@@ -24,7 +24,6 @@ bipedalwalker_bco_config = dict(
             action_shape=4,
             action_space='regression',
             actor_head_hidden_size=128,
-            critic_head_hidden_size=128,
         ),
         learn=dict(
             train_epoch=200,  # If train_epoch is 1, the algorithm will be BCO(0)
@@ -44,12 +43,23 @@ bipedalwalker_bco_config = dict(
             # Notice: alpha * n_episode > collector_env_num
             model_path='/home/DI-engine/dizoo/box2d/bipedalwalker/config/expert_sac/ckpt_best.pth.tar',
             data_path='abs data path',
+            noise=True,
+            noise_sigma=dict(
+                start=0.9,
+                end=0,
+                decay=50000,
+                type='linear',
+            ),
+            noise_range=dict(
+                min=-1,
+                max=1,
+            ),
         ),
         eval=dict(evaluator=dict(eval_freq=40, )),
         other=dict(replay_buffer=dict(replay_buffer_size=100000, ), ),
     ),
     bco=dict(
-        learn=dict(idm_batch_size=256, idm_learning_rate=0.001, idm_weight_decay=1e-4, idm_train_epoch=10),
+        learn=dict(idm_batch_size=256, idm_learning_rate=0.001, idm_weight_decay=0, idm_train_epoch=10),
         model=dict(
             action_space='regression',
             idm_encoder_hidden_size_list=[60, 80, 100, 40],
