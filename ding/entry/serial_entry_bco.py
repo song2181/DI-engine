@@ -1,3 +1,4 @@
+from operator import length_hint
 import os
 import time
 import copy
@@ -326,7 +327,16 @@ def serial_pipeline_bco(
                 n_episode=collect_episode, train_iter=learner.train_iter, policy_kwargs=collect_kwargs
             )
         # agent_data = agent_data + new_data
+        # all_data = new_data + expert_data[:int(len(expert_data) * cfg.policy.expert_pho)]
         learn_dataset = load_agentdata(new_data)
+        tb_logger.add_histogram("agent_action", learn_dataset.action, learner.train_iter)
+        length = len(learn_dataset.action)
+        tb_logger.add_histogram("expert_action", expert_learn_dataset.action[0:length], learner.train_iter)
+        l1_loss = nn.L1Loss()
+        action_l1loss = l1_loss(learn_dataset.action, expert_learn_dataset.action[0:length])
+        tb_logger.add_scalar("action/action_l1loss", action_l1loss, learner.train_iter)
+        tb_logger.add_scalar("action/action_agent", learn_dataset.action.mean().item(), learner.train_iter)
+        tb_logger.add_scalar("action/expert_agent", expert_learn_dataset.action.mean().item(), learner.train_iter)
         learn_dataloader = DataLoader(learn_dataset, cfg.bco.learn.idm_batch_size)
         for i, train_data in enumerate(learn_dataloader):
             idm_loss = learned_model.train(
@@ -335,7 +345,8 @@ def serial_pipeline_bco(
                 cfg.bco.learn.idm_learning_rate,
                 cfg.bco.learn.idm_weight_decay,
             )
-        tb_logger.add_scalar("idm_loss", idm_loss, learner.train_iter)
+        tb_logger.add_scalar("idm/idm_loss", idm_loss, learner.train_iter)
+        tb_logger.add_scalar("action/noise_sigma", collect_kwargs['sigma'], learner.train_iter)
         # Generate state transitions from demonstrated state trajectories by IDM
         expert_action_data = learned_model.predict_action(expert_learn_dataset.obs)['action']
         post_expert_dataset = BCODataset(

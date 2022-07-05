@@ -1,7 +1,7 @@
 from easydict import EasyDict
 
 bipedalwalker_bco_config = dict(
-    exp_name='bipedalwalker_bco_noidecay',
+    exp_name='bipedalwalker_bco_noidecay1',
     env=dict(
         env_id='BipedalWalker-v3',
         collector_env_num=8,
@@ -19,6 +19,7 @@ bipedalwalker_bco_config = dict(
         cuda=True,
         continuous=True,
         loss_type='l1_loss',
+        # expert_pho = 0.05,
         model=dict(
             obs_shape=24,
             action_shape=4,
@@ -46,8 +47,8 @@ bipedalwalker_bco_config = dict(
             noise=True,
             noise_sigma=dict(
                 start=0.9,
-                end=0,
-                decay=50000,
+                end=0.2,
+                decay=100000,
                 type='linear',
             ),
             noise_range=dict(
