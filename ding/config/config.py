@@ -1,3 +1,4 @@
+from email.policy import default
 import os
 import os.path as osp
 import json
@@ -354,20 +355,20 @@ def compile_config(
         if 'replay_buffer' not in create_cfg:
             create_cfg.replay_buffer = EasyDict(dict(type='advanced'))
             buffer = AdvancedReplayBuffer
-        if env is None:
-            env = get_env_cls(create_cfg.env)
-        if env_manager is None:
-            env_manager = get_env_manager_cls(create_cfg.env_manager)
+        # if env is None:
+        #     env = get_env_cls(create_cfg.env)
+        # if env_manager is None:
+        #     env_manager = get_env_manager_cls(create_cfg.env_manager)
         if policy is None:
             policy = get_policy_cls(create_cfg.policy)
-        if 'default_config' in dir(env):
-            env_config = env.default_config()
-        else:
-            env_config = EasyDict()  # env does not have default_config
-        env_config = deep_merge_dicts(env_config_template, env_config)
-        env_config.update(create_cfg.env)
-        env_config.manager = deep_merge_dicts(env_manager.default_config(), env_config.manager)
-        env_config.manager.update(create_cfg.env_manager)
+        # if 'default_config' in dir(env):
+        #     env_config = env.default_config()
+        # else:
+        #     env_config = EasyDict()  # env does not have default_config
+        # env_config = deep_merge_dicts(env_config_template, env_config)
+        # # env_config.update(create_cfg.env)
+        # env_config.manager = deep_merge_dicts(env_manager.default_config(), env_config.manager)
+        # env_config.manager.update(create_cfg.env_manager)
         policy_config = policy.default_config()
         policy_config = deep_merge_dicts(policy_config_template, policy_config)
         policy_config.update(create_cfg.policy)
@@ -419,7 +420,8 @@ def compile_config(
         )
     if create_cfg is not None or buffer is not None:
         policy_config.other.replay_buffer = compile_buffer_config(policy_config, cfg, buffer)
-    default_config = EasyDict({'env': env_config, 'policy': policy_config})
+    # default_config = EasyDict({'env': env_config, 'policy': policy_config})
+    default_config = EasyDict({'policy': policy_config})
     if len(reward_model_config) > 0:
         default_config['reward_model'] = reward_model_config
     if len(world_model_config) > 0:
@@ -427,10 +429,10 @@ def compile_config(
     cfg = deep_merge_dicts(default_config, cfg)
     cfg.seed = seed
     # check important key in config
-    if evaluator in [InteractionSerialEvaluator, BattleInteractionSerialEvaluator]:  # env interaction evaluation
-        if 'stop_value' in cfg.env:  # data generation task doesn't need these fields
-            cfg.policy.eval.evaluator.n_episode = cfg.env.n_evaluator_episode
-            cfg.policy.eval.evaluator.stop_value = cfg.env.stop_value
+    # if evaluator in [InteractionSerialEvaluator, BattleInteractionSerialEvaluator]:  # env interaction evaluation
+    #     if 'stop_value' in cfg.env:  # data generation task doesn't need these fields
+    #         cfg.policy.eval.evaluator.n_episode = cfg.env.n_evaluator_episode
+    #         cfg.policy.eval.evaluator.stop_value = cfg.env.stop_value
     if 'exp_name' not in cfg:
         cfg.exp_name = 'default_experiment'
     if save_cfg:

@@ -12,21 +12,21 @@ import torch.nn.functional as F
 
 from abc import ABC, abstractmethod
 
-from ding.utils import MODEL_REGISTRY, STOCHASTIC_OPTIMIZER_REGISTRY
+from ding.utils import MODEL_REGISTRY, STOCHASTIC_OPTIMIZER_REGISTRY, SequenceType, squeeze
 from ding.torch_utils import unsqueeze_repeat, fold_batch, unfold_batch
 from ding.torch_utils.network.gtrxl import PositionalEmbedding
-from ..common import RegressionHead
+from ..common import RegressionHead, ConvEncoder
 
 
 def create_stochastic_optimizer(stochastic_optimizer_config):
-    return STOCHASTIC_OPTIMIZER_REGISTRY.build(
-        stochastic_optimizer_config.pop("type"),
-        **stochastic_optimizer_config
-    )
+    return STOCHASTIC_OPTIMIZER_REGISTRY.build(stochastic_optimizer_config.pop("type"), **stochastic_optimizer_config)
+
 
 def no_ebm_grad():
     """Wrapper that disables energy based model gradients"""
+
     def ebm_disable_grad_wrapper(func: Callable):
+
         def wrapper(*args, **kwargs):
             # make sure ebm is the last positional arguments
             ebm = args[-1]
@@ -34,8 +34,11 @@ def no_ebm_grad():
             result = func(*args, **kwargs)
             ebm.requires_grad_(True)
             return result
+
         return wrapper
+
     return ebm_disable_grad_wrapper
+
 
 class StochasticOptimizer(ABC):
 
@@ -87,8 +90,83 @@ class StochasticOptimizer(ABC):
         raise NotImplementedError
 
 
+class SpatialSoftArgmax(nn.Module):
+    """Spatial softmax as defined in https://arxiv.org/abs/1504.00702.
+    Concretely, the spatial softmax of each feature map is used to compute a weighted
+    mean of the pixel locations, effectively performing a soft arg-max over the feature
+    dimension.
+    """
+
+    def __init__(self, normalize: bool = True) -> None:
+        super().__init__()
+
+        self.normalize = normalize
+
+    def _coord_grid(
+            self,
+            h: int,
+            w: int,
+            device: torch.device,
+    ) -> torch.Tensor:
+        if self.normalize:
+            return torch.stack(
+                torch.meshgrid(
+                    torch.linspace(-1, 1, w, device=device),
+                    torch.linspace(-1, 1, h, device=device),
+                )
+            )
+        return torch.stack(torch.meshgrid(
+            torch.arange(0, w, device=device),
+            torch.arange(0, h, device=device),
+        ))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        assert x.ndim == 4, "Expecting a tensor of shape (B, C, H, W)."
+
+        # Compute a spatial softmax over the input:
+        # Given an input of shape (B, C, H, W), reshape it to (B*C, H*W) then apply the
+        # softmax operator over the last dimension.
+        _, c, h, w = x.shape
+        softmax = F.softmax(x.view(-1, h * w), dim=-1)
+
+        # Create a meshgrid of normalized pixel coordinates.
+        xc, yc = self._coord_grid(h, w, x.device)
+
+        # Element-wise multiply the x and y coordinates with the softmax, then sum over
+        # the h*w dimension. This effectively computes the weighted mean x and y
+        # locations.
+        x_mean = (softmax * xc.flatten()).sum(dim=1, keepdims=True)
+        y_mean = (softmax * yc.flatten()).sum(dim=1, keepdims=True)
+
+        # Concatenate and reshape the result to (B, C*2) where for every feature we have
+        # the expected x and y pixel locations.
+        return torch.cat([x_mean, y_mean], dim=1).view(-1, c * 2)
+
+
+class ResidualBlock(nn.Module):
+
+    def __init__(
+            self,
+            depth: int,
+            activation_fn: Optional[nn.Module] = nn.ReLU(),
+    ) -> None:
+        super().__init__()
+
+        self.conv1 = nn.Conv2d(depth, depth, 3, padding=1, bias=True)
+        self.conv2 = nn.Conv2d(depth, depth, 3, padding=1, bias=True)
+        self.activation = activation_fn
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        out = self.activation(x)
+        out = self.conv1(out)
+        out = self.activation(x)
+        out = self.conv2(out)
+        return out + x
+
+
 @STOCHASTIC_OPTIMIZER_REGISTRY.register('dfo')
 class DFO(StochasticOptimizer):
+
     def __init__(
         self,
         # action_bounds: np.ndarray,
@@ -138,7 +216,7 @@ class DFO(StochasticOptimizer):
 
             # Add noise and clip to target bounds.
             action_samples = action_samples + torch.randn_like(action_samples) * noise_scale
-            action_samples = action_samples.clamp(min=self.action_bounds[0, :], max=self.action_bounds[1, :])
+            action_samples = action_samples.clamp(min=self.action_bounds[0, 0], max=self.action_bounds[1, 1])
 
             noise_scale *= self.noise_shrink
 
@@ -148,6 +226,7 @@ class DFO(StochasticOptimizer):
 
 @STOCHASTIC_OPTIMIZER_REGISTRY.register('ardfo')
 class AutoRegressiveDFO(DFO):
+
     def __init__(
         self,
         # action_bounds: np.ndarray,
@@ -189,7 +268,7 @@ class AutoRegressiveDFO(DFO):
                 action_samples[:, :, j] = _action_samples
 
             noise_scale *= self.noise_shrink
-        
+
         # (B, N, A)
         energies = ebm.forward(obs, action_samples)
         probs = F.softmax(-1 * energies, dim=1)
@@ -202,6 +281,7 @@ class AutoRegressiveDFO(DFO):
 class MCMC(StochasticOptimizer):
 
     class BaseScheduler(ABC):
+
         @abstractmethod
         def get_rate(self, index):
             raise NotImplementedError
@@ -216,7 +296,7 @@ class MCMC(StochasticOptimizer):
         def get_rate(self, index):
             """Get learning rate. Assumes calling sequentially."""
             del index
-            lr = self._latest_lr 
+            lr = self._latest_lr
             self._latest_lr *= self._decay
             return lr
 
@@ -233,9 +313,9 @@ class MCMC(StochasticOptimizer):
             """Get learning rate for index."""
             if index == -1:
                 return self._init
-            return ((self._init - self._final) *
-                    ((1 - (float(index) / float(self._num_steps-1))) ** (self._power))
-                    ) + self._final
+            return (
+                (self._init - self._final) * ((1 - (float(index) / float(self._num_steps - 1))) ** (self._power))
+            ) + self._final
 
     def __init__(
         self,
@@ -251,14 +331,14 @@ class MCMC(StochasticOptimizer):
         optimize_again: bool = True,
         again_stepsize_scheduler: dict = dict(
             init=1e-4,
-            final=1e-5, 
+            final=1e-5,
             power=2.0,
             # num_steps,
         ),
         cuda: bool = False,
         ## langevin_step
         noise_scale: float = 0.5,
-        grad_clip = None,
+        grad_clip=None,
         delta_action_clip: float = 0.1,
         add_grad_penalty: bool = False,
         grad_norm_type: str = 'inf',
@@ -284,11 +364,11 @@ class MCMC(StochasticOptimizer):
         self.grad_margin = grad_margin
         self.grad_loss_weight = grad_loss_weight
         self.device = torch.device('cuda' if cuda else "cpu")
-    
+
     @staticmethod
     def _gradient_wrt_act(
-            obs: torch.Tensor, 
-            action: torch.Tensor, 
+            obs: torch.Tensor,
+            action: torch.Tensor,
             ebm: nn.Module,
             is_train: bool = False,
     ) -> torch.Tensor:
@@ -301,12 +381,7 @@ class MCMC(StochasticOptimizer):
         energy = ebm.forward(obs, action).sum()
         return torch.autograd.grad(energy, action, create_graph=is_train)[0]
 
-    def grad_penalty(
-            self, 
-            obs: torch.Tensor, 
-            action: torch.Tensor, 
-            ebm: nn.Module
-    ) -> torch.Tensor:
+    def grad_penalty(self, obs: torch.Tensor, action: torch.Tensor, ebm: nn.Module) -> torch.Tensor:
         """
         Calculate grad_penalty.
         Make sure `torch.is_grad_enabled()==True` to calculate second order derivatives.
@@ -326,7 +401,7 @@ class MCMC(StochasticOptimizer):
                 '2': 2,
                 'inf': float('inf'),
             }
-            ord = grad_norm_type_to_ord[grad_norm_type] 
+            ord = grad_norm_type_to_ord[grad_norm_type]
             return torch.linalg.norm(de_dact, ord, dim=-1)
 
         # (B, N+1)
@@ -341,13 +416,7 @@ class MCMC(StochasticOptimizer):
     # can not use @torch.no_grad() even during the inference
     # because we need to calculate gradient w.r.t inputs as MCMC updates.
     @no_ebm_grad()
-    def _langevin_step(
-            self, 
-            obs: torch.Tensor, 
-            action: torch.Tensor, 
-            stepsize: float, 
-            ebm: nn.Module
-    ) -> torch.Tensor:
+    def _langevin_step(self, obs: torch.Tensor, action: torch.Tensor, stepsize: float, ebm: nn.Module) -> torch.Tensor:
         """
         Run one langevin MCMC step.
         obs: (B, N, O), action: (B, N, A)
@@ -360,25 +429,23 @@ class MCMC(StochasticOptimizer):
             de_dact = de_dact.clamp(min=-self.grad_clip, max=self.grad_clip)
 
         gradient_scale = 0.5
-        de_dact = (gradient_scale * l_lambda * de_dact +
-             torch.randn_like(de_dact) * l_lambda * self.noise_scale)
-        
+        de_dact = (gradient_scale * l_lambda * de_dact + torch.randn_like(de_dact) * l_lambda * self.noise_scale)
+
         delta_action = stepsize * de_dact
-        delta_action_clip = self.delta_action_clip * 0.5 * (
-            self.action_bounds[1] - self.action_bounds[0])
+        delta_action_clip = self.delta_action_clip * 0.5 * (self.action_bounds[1] - self.action_bounds[0])
         delta_action = delta_action.clamp(min=-delta_action_clip, max=delta_action_clip)
 
         action = action - delta_action
         action = action.clamp(min=self.action_bounds[0], max=self.action_bounds[1])
-        
+
         return action
 
     @no_ebm_grad()
     def _langevin_action_gives_obs(
-            self, 
-            obs: torch.Tensor, 
-            action: torch.Tensor, 
-            ebm: nn.Module, 
+            self,
+            obs: torch.Tensor,
+            action: torch.Tensor,
+            ebm: nn.Module,
             scheduler: BaseScheduler = None
     ) -> torch.Tensor:
         """
@@ -415,8 +482,8 @@ class MCMC(StochasticOptimizer):
         # (B, N, O), (B, N, A)
         obs, uniform_action_samples = self._sample(obs, self.inference_samples)
         action_samples = self._langevin_action_gives_obs(
-            obs, 
-            uniform_action_samples, 
+            obs,
+            uniform_action_samples,
             ebm,
         )
 
@@ -424,7 +491,7 @@ class MCMC(StochasticOptimizer):
         if self.optimize_again:
             self.again_stepsize_scheduler['num_steps'] = self.iters
             action_samples = self._langevin_action_gives_obs(
-                obs, 
+                obs,
                 action_samples,
                 ebm,
                 scheduler=MCMC.PolynomialScheduler(**self.again_stepsize_scheduler),
@@ -434,37 +501,74 @@ class MCMC(StochasticOptimizer):
         return self._get_best_action_sample(obs, action_samples, ebm)
 
 
-
 @MODEL_REGISTRY.register('ebm')
 class EBM(nn.Module):
-    
+
     def __init__(
         self,
-        obs_shape: int,
-        action_shape: int,
+        obs_shape: Union[int, SequenceType],
+        action_shape: Union[int, SequenceType],
         hidden_size: int = 64,
         hidden_layer_num: int = 1,
+        cnn_block: Union[int, SequenceType] = [16],
         **kwargs,
     ):
         super().__init__()
-        input_size = obs_shape + action_shape 
-        self.net = nn.Sequential(
-            nn.Linear(input_size, hidden_size), 
-            nn.ReLU(),
-            RegressionHead(
-                hidden_size,
-                1,
-                hidden_layer_num,
-                final_tanh=False,
+        self.obs_shape, self.action_shape = squeeze(obs_shape), squeeze(action_shape)
+        if isinstance(self.obs_shape, int) or len(self.obs_shape) == 1:
+            input_size = self.obs_shape + self.action_shape
+            self.net = nn.Sequential(
+                nn.Linear(input_size, hidden_size), nn.ReLU(),
+                RegressionHead(
+                    hidden_size,
+                    1,
+                    hidden_layer_num,
+                    final_tanh=False,
+                )
             )
-        )
+        elif len(self.obs_shape) == 3:
+            layers = []
+            depth_in = self.obs_shape[0]
+            for depth_out in cnn_block:
+                layers.extend([
+                    nn.Conv2d(depth_in, depth_out, 3, padding=1),
+                    ResidualBlock(depth_out),
+                ])
+                depth_in = depth_out
+
+            self.cnnnet = nn.Sequential(*layers)
+            self.activate = nn.ReLU()
+            self.reducer = SpatialSoftArgmax()
+            input_size = 16 * 2 + self.action_shape
+            self.net = nn.Sequential(
+                nn.Linear(input_size, hidden_size), nn.ReLU(),
+                RegressionHead(
+                    hidden_size,
+                    1,
+                    hidden_layer_num,
+                    final_tanh=False,
+                )
+            )
+        else:
+            raise RuntimeError("not support obs_shape : {}.".format(obs_shape))
 
     def forward(self, obs, action):
         # obs: (B, N, O)
         # action: (B, N, A)
         # return: (B, N)
-        x = torch.concat([obs, action], -1)
-        x = self.net(x)
+        if isinstance(self.obs_shape, int) or len(self.obs_shape) == 1:
+            x = torch.concat([obs, action], -1)
+            x = self.net(x)
+        elif len(self.obs_shape) == 3:
+            B, N = obs.shape[0], obs.shape[1]
+            obs = obs.reshape((B * N, ) + self.obs_shape)
+            action = action.reshape(B * N, self.action_shape)
+            x = self.cnnnet(obs)
+            x = self.activate(x)
+            x = self.reducer(x)
+            x = torch.cat([x, action], -1)
+            x = self.net(x)
+            x['pred'] = x['pred'].reshape(B, N)
         return x['pred']
 
 
@@ -503,12 +607,10 @@ class AutoregressiveEBM(nn.Module):
     def _generate_positional_encoding(self, d_model):
         positional_encoding_layer = PositionalEmbedding(d_model)
         # batch_first
-        self.obs_pe = positional_encoding_layer(
-            PositionalEmbedding.generate_pos_seq(self.obs_shape)
-        ).permute(1, 0, 2).contiguous().to(self.device)
-        self.action_pe = positional_encoding_layer(
-            PositionalEmbedding.generate_pos_seq(self.action_shape)
-        ).permute(1, 0, 2).contiguous().to(self.device)
+        self.obs_pe = positional_encoding_layer(PositionalEmbedding.generate_pos_seq(self.obs_shape)
+                                                ).permute(1, 0, 2).contiguous().to(self.device)
+        self.action_pe = positional_encoding_layer(PositionalEmbedding.generate_pos_seq(self.action_shape)
+                                                   ).permute(1, 0, 2).contiguous().to(self.device)
 
     def forward(self, obs, action):
         # obs: (B, N, O)
@@ -523,7 +625,7 @@ class AutoregressiveEBM(nn.Module):
         # obs: (B*N, O, 1)
         # action: (B*N, A, 1)
         # the second dimension (O, A) is now interpreted as sequence dimension
-        # so that `obs`, `action` can be used as `src` and `tgt` to `nn.Transformer` 
+        # so that `obs`, `action` can be used as `src` and `tgt` to `nn.Transformer`
         # block with `batch_first=False`
         obs = self.obs_embed_layer(obs.unsqueeze(-1)) + self.obs_pe.to(obs.device)
         action = self.action_embed_layer(action.unsqueeze(-1)) + self.action_pe.to(obs.device)
