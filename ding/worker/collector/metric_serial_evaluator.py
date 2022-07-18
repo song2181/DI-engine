@@ -79,7 +79,7 @@ class MetricSerialEvaluator(ISerialEvaluator):
         self.reset(policy, env)
 
         self._timer = EasyTimer()
-        # self._stop_value = cfg.stop_value
+        self._stop_value = cfg.stop_value
 
     def reset_env(self, _env: Optional[Tuple[DataLoader, IMetric]] = None) -> None:
         """

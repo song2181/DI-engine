@@ -12,20 +12,23 @@ main_config = dict(
             cnn_block=[16],
             hidden_size=128,
             hidden_layer_num=2,
-            stochastic_optim=dict(type='dfo', cuda=False, train_samples=32, inference_samples=32)
+            stochastic_optim=dict(type='dfo', cuda=False, train_samples=16, inference_samples=15)
         ),
         learn=dict(
             multi_gpu=multi_gpu,
-            train_epoch=30,
-            batch_size=10,
+            train_epoch=10,
+            batch_size=4,
             optim=dict(learning_rate=1e-5, ),
-            learner=dict(hook=dict(log_show_after_iter=1000)),
+            learner=dict(hook=dict(log_show_after_iter=1)),
         ),
         collect=dict(
             normalize_states=False,
             data_path=None,
         ),
-        eval=dict(evaluator=dict(multi_gpu=multi_gpu, cfg_type='MetricSerialEvaluatorDict')),
+        eval=dict(
+            batch_size=4,
+            evaluator=dict(eval_freq=1, multi_gpu=multi_gpu, cfg_type='MetricSerialEvaluatorDict', stop_value=None)
+        ),
     ),
     train_dataset=dict(
         dataset_size=10,
@@ -35,7 +38,7 @@ main_config = dict(
         seed=0,
     ),
     test_dataset=dict(
-        dataset_size=100,
+        dataset_size=500,
         resolution=(96, 96),
         pixel_size=5,
         pixel_color=(0, 255, 0),

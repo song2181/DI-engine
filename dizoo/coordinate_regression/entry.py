@@ -25,12 +25,12 @@ class CoordinateRegressionMetric(IMetric):
     def __init__(self) -> None:
         self.loss = nn.MSELoss()
 
-    def eval(self, inputs: torch.Tensor, label: torch.Tensor) -> dict:
+    def eval(self, inputs: dict, label: torch.Tensor) -> dict:
         """
         Returns:
             - eval_result (:obj:`dict`): {'loss': xxx, 'acc1': xxx, 'acc5': xxx}
         """
-        loss = self.loss(inputs, label)
+        loss = self.loss(inputs['action'], label)
         return {'loss': loss.item()}
 
     def reduce_mean(self, inputs: List[dict]) -> dict:
@@ -90,10 +90,9 @@ def serial_pipeline_offline(
     test_dataset.exclude(train_dataset.coordinates)
     test_dataloader = DataLoader(
         test_dataset,
-        # cfg.policy.learn.batch_size,
-        cfg.test_dataset.dataset_size,
+        cfg.policy.eval.batch_size,
+        # cfg.test_dataset.dataset_size,
         shuffle=True,
-        # collate_fn=lambda x: x,
         pin_memory=cfg.policy.cuda,
     )
     set_pkg_seed(seed, use_cuda=cfg.policy.cuda)
@@ -106,11 +105,9 @@ def serial_pipeline_offline(
     # Main components
     tb_logger = SummaryWriter(os.path.join('./{}/log/'.format(cfg.exp_name), 'serial'))
     learner = BaseLearner(cfg.policy.learn.learner, policy.learn_mode, tb_logger, exp_name=cfg.exp_name)
+    eval_metric = CoordinateRegressionMetric()
     evaluator = MetricSerialEvaluator(
-        cfg.policy.eval.evaluator, [test_dataloader, CoordinateRegressionMetric],
-        policy.eval_mode,
-        tb_logger,
-        exp_name=cfg.exp_name
+        cfg.policy.eval.evaluator, [test_dataloader, eval_metric], policy.eval_mode, tb_logger, exp_name=cfg.exp_name
     )
     # evaluator = InteractionSerialEvaluator(
     #     cfg.policy.eval.evaluator, evaluator_env, policy.eval_mode, tb_logger, exp_name=cfg.exp_name
@@ -130,7 +127,8 @@ def serial_pipeline_offline(
         for train_data in tqdm(train_dataloader):
             learner.train(train_data)
 
-        # for test_data in tqdm(test_dataloader):
+        for test_data in tqdm(test_dataloader):
+            stop, reward, output = evaluator.eval(learner.save_checkpoint, learner.train_iter)
 
     policy.eval_mode.reset()
     test_coords = test_dataset.coordinates
@@ -142,7 +140,14 @@ def serial_pipeline_offline(
         # collate_fn=lambda x: x,
         pin_memory=cfg.policy.cuda,
     )
-    errors = eval(train_dataloader, train_dataloader, policy.eval_mode)
-    plot(train_coords, train_coords, errors, cfg.test_dataset.resolution, 'img.png', 100, 140)
+    test_dataloader = DataLoader(
+        test_dataset,
+        # cfg.policy.learn.batch_size,
+        cfg.test_dataset.dataset_size,
+        shuffle=True,
+        pin_memory=cfg.policy.cuda,
+    )
+    errors = eval(train_dataloader, test_dataloader, policy.eval_mode)
+    plot(train_coords, test_coords, errors, cfg.test_dataset.resolution, 'img.png', 100, 140)
     learner.call_hook('after_run')
     return policy, stop
