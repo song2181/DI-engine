@@ -329,9 +329,12 @@ def serial_pipeline_bco(
         # agent_data = agent_data + new_data
         # all_data = new_data + expert_data[:int(len(expert_data) * cfg.policy.expert_pho)]
         learn_dataset = load_agentdata(new_data)
-        tb_logger.add_histogram("agent_action", learn_dataset.action, learner.train_iter)
         length = len(learn_dataset.action)
-        tb_logger.add_histogram("expert_action", expert_learn_dataset.action[0:length], learner.train_iter)
+        for i in range(0, 4):
+            tb_logger.add_histogram("agent_action_" + str(i), learn_dataset.action[:, i], learner.train_iter)
+            tb_logger.add_histogram("expert_action_" + str(i), expert_learn_dataset.action[:, i], learner.train_iter)
+        tb_logger.add_histogram("agent_action", learn_dataset.action, learner.train_iter)
+        tb_logger.add_histogram("expert_action", expert_learn_dataset.action, learner.train_iter)
         l1_loss = nn.L1Loss()
         action_l1loss = l1_loss(learn_dataset.action, expert_learn_dataset.action[0:length])
         tb_logger.add_scalar("action/action_l1loss", action_l1loss, learner.train_iter)

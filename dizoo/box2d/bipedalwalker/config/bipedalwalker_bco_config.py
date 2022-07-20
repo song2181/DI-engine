@@ -1,7 +1,7 @@
 from easydict import EasyDict
 
 bipedalwalker_bco_config = dict(
-    exp_name='bipedalwalker_bco_noidecay1',
+    exp_name='bipedalwalker_bco_onpolicy_0.5-0.1',
     env=dict(
         env_id='BipedalWalker-v3',
         collector_env_num=8,
@@ -32,7 +32,7 @@ bipedalwalker_bco_config = dict(
             learning_rate=0.001,
             weight_decay=1e-4,
             decay_epoch=30,
-            decay_rate=0.1,
+            decay_rate=1,
             warmup_lr=1e-4,
             warmup_epoch=3,
             optimizer='SGD',
@@ -46,10 +46,10 @@ bipedalwalker_bco_config = dict(
             data_path='abs data path',
             noise=True,
             noise_sigma=dict(
-                start=0.9,
-                end=0.2,
-                decay=100000,
-                type='linear',
+                start=0.5,
+                end=0.1,
+                decay=1000000,
+                type='exp',
             ),
             noise_range=dict(
                 min=-1,
@@ -60,12 +60,12 @@ bipedalwalker_bco_config = dict(
         other=dict(replay_buffer=dict(replay_buffer_size=100000, ), ),
     ),
     bco=dict(
-        learn=dict(idm_batch_size=256, idm_learning_rate=0.001, idm_weight_decay=0, idm_train_epoch=10),
+        learn=dict(idm_batch_size=128, idm_learning_rate=0.001, idm_weight_decay=0, idm_train_epoch=10),
         model=dict(
             action_space='regression',
             idm_encoder_hidden_size_list=[60, 80, 100, 40],
         ),
-        alpha=0.1,
+        alpha=0.8,
     )
 )
 

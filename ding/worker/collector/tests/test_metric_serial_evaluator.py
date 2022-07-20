@@ -14,7 +14,7 @@ fake_cls_config = dict(
     policy=dict(
         on_policy=False,
         cuda=False,
-        eval=dict(batch_size=1, evaluator=dict(eval_freq=1, multi_gpu=False, stop_value=dict(acc=75.0))),
+        eval=dict(batch_size=4, evaluator=dict(eval_freq=1, multi_gpu=False, stop_value=dict(acc=75.0))),
     ),
     env=dict(),
 )
@@ -100,3 +100,7 @@ def test_evaluator(cfg):
     stop, reward = evaluator.eval(None, cur_iter, 0)
     assert stop
     assert reward['acc'] == 100
+
+
+if __name__ == "__main__":
+    test_evaluator(cfg)
