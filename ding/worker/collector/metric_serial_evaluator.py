@@ -222,4 +222,4 @@ class MetricSerialEvaluator(ISerialEvaluator):
                 "Current eval_reward: {} is greater than stop_value: {}".format(avg_eval_result, self._stop_value) +
                 ", so your RL agent is converged, you can refer to 'log/evaluator/evaluator_logger.txt' for details."
             )
-        return stop_flag, avg_eval_result, policy_output
+        return stop_flag, avg_eval_result

@@ -13,25 +13,41 @@ from ding.worker import BaseLearner, MetricSerialEvaluator, IMetric
 from ding.config import read_config, compile_config
 from ding.policy import create_policy
 from ding.utils import set_pkg_seed
-from ding.utils.data import create_dataset
 from dizoo.coordinate_regression.dataset import CoordinateRegression
-from ding.policy.ibc import IBCPolicy
-from ding.model.template.ebm import EBM
 from dizoo.coordinate_regression.plot import plot, eval
+import copy
+import numpy as np
 
 
 class CoordinateRegressionMetric(IMetric):
 
-    def __init__(self) -> None:
+    def __init__(self, cfg) -> None:
         self.loss = nn.MSELoss()
+        self.cfg = cfg
 
     def eval(self, inputs: dict, label: torch.Tensor) -> dict:
         """
         Returns:
             - eval_result (:obj:`dict`): {'loss': xxx, 'acc1': xxx, 'acc5': xxx}
         """
+        # scaled coordination
         loss = self.loss(inputs['action'], label)
-        return {'loss': loss.item()}
+        pred_unscaled = np.array(inputs['action'])
+        pred_unscaled += 1
+        pred_unscaled /= 2
+        pred_unscaled[:, 0] *= self.cfg.resolution[0] - 1
+        pred_unscaled[:, 1] *= self.cfg.resolution[0] - 1
+
+        target_unscaled = np.array(label)
+        target_unscaled += 1
+        target_unscaled /= 2
+        target_unscaled[:, 0] *= self.cfg.resolution[0] - 1
+        target_unscaled[:, 1] *= self.cfg.resolution[0] - 1
+
+        diff = pred_unscaled - target_unscaled
+        error = np.linalg.norm(diff, axis=1)[0]
+        num_small_err = len(error[error < 1.0])
+        return {'mseloss': loss.item(), 'coord_error': error, 'coord_acc': num_small_err}
 
     def reduce_mean(self, inputs: List[dict]) -> dict:
         L = len(inputs)
@@ -42,7 +58,7 @@ class CoordinateRegressionMetric(IMetric):
 
     def gt(self, metric1: dict, metric2: dict) -> bool:
         if metric2 is None:
-            return True
+            return False
         for k in metric1:
             if metric1[k] < metric2[k]:
                 return False
@@ -95,19 +111,30 @@ def serial_pipeline_offline(
         shuffle=True,
         pin_memory=cfg.policy.cuda,
     )
+    eval_config = copy.deepcopy(cfg.test_dataset)
+    eval_config.dataset_size = 100
+    eval_dataset = CoordinateRegression(eval_config)
+    eval_dataloader = DataLoader(
+        eval_dataset,
+        cfg.policy.eval.batch_size,
+        # cfg.test_dataset.dataset_size,
+        shuffle=True,
+        pin_memory=cfg.policy.cuda,
+    )
     set_pkg_seed(seed, use_cuda=cfg.policy.cuda)
     policy = create_policy(cfg.policy, model=model, enable_field=['learn', 'eval'])
     # Normalization for state in offlineRL dataset.
     # if cfg.policy.collect.get('normalize_states', None):
     #     policy.set_norm_statistics({'action_bounds': train_dataset.get_target_bounds})
-    policy._stochastic_optimizer.set_action_bounds(train_dataset.get_target_bounds())
+    if cfg.policy.implicit:
+        policy._stochastic_optimizer.set_action_bounds(train_dataset.get_target_bounds())
 
     # Main components
     tb_logger = SummaryWriter(os.path.join('./{}/log/'.format(cfg.exp_name), 'serial'))
     learner = BaseLearner(cfg.policy.learn.learner, policy.learn_mode, tb_logger, exp_name=cfg.exp_name)
-    eval_metric = CoordinateRegressionMetric()
+    eval_metric = CoordinateRegressionMetric(cfg.test_dataset)
     evaluator = MetricSerialEvaluator(
-        cfg.policy.eval.evaluator, [test_dataloader, eval_metric], policy.eval_mode, tb_logger, exp_name=cfg.exp_name
+        cfg.policy.eval.evaluator, [eval_dataloader, eval_metric], policy.eval_mode, tb_logger, exp_name=cfg.exp_name
     )
     # evaluator = InteractionSerialEvaluator(
     #     cfg.policy.eval.evaluator, evaluator_env, policy.eval_mode, tb_logger, exp_name=cfg.exp_name
@@ -122,15 +149,12 @@ def serial_pipeline_offline(
     for epoch in tqdm(range(cfg.policy.learn.train_epoch)):
         # Evaluate policy per epoch
 
-        # stop, reward = evaluator.eval(learner.save_checkpoint, epoch, 0)
+        stop, reward = evaluator.eval(learner.save_checkpoint, learner.train_iter)
 
         for train_data in tqdm(train_dataloader):
             learner.train(train_data)
 
-        for test_data in tqdm(test_dataloader):
-            stop, reward, output = evaluator.eval(learner.save_checkpoint, learner.train_iter)
-
-    policy.eval_mode.reset()
+    # plot final image
     test_coords = test_dataset.coordinates
     train_coords = train_dataset.coordinates
     train_dataloader = DataLoader(
@@ -140,14 +164,8 @@ def serial_pipeline_offline(
         # collate_fn=lambda x: x,
         pin_memory=cfg.policy.cuda,
     )
-    test_dataloader = DataLoader(
-        test_dataset,
-        # cfg.policy.learn.batch_size,
-        cfg.test_dataset.dataset_size,
-        shuffle=True,
-        pin_memory=cfg.policy.cuda,
-    )
+
     errors = eval(train_dataloader, test_dataloader, policy.eval_mode)
     plot(train_coords, test_coords, errors, cfg.test_dataset.resolution, 'img.png', 100, 140)
     learner.call_hook('after_run')
-    return policy, stop
+    return policy

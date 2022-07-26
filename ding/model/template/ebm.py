@@ -537,6 +537,7 @@ class EBM(nn.Module):
                 depth_in = depth_out
 
             self.cnnnet = nn.Sequential(*layers)
+            self.conv = nn.Conv2d(cnn_block[-1], 16, 1)
             self.activate = nn.ReLU()
             self.reducer = SpatialSoftArgmax()
             input_size = 16 * 2 + self.action_shape
@@ -564,7 +565,7 @@ class EBM(nn.Module):
             obs = obs.reshape((B * N, ) + self.obs_shape)
             action = action.reshape(B * N, self.action_shape)
             x = self.cnnnet(obs)
-            x = self.activate(x)
+            x = self.activate(self.conv(x))
             x = self.reducer(x)
             x = torch.cat([x, action], -1)
             x = self.net(x)

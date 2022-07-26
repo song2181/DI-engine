@@ -72,7 +72,7 @@ class BehaviourCloningPolicy(Policy):
             else:
                 obs, action = data['obs'], data['action'].squeeze()
             if self._cfg.continuous:
-                mu = self._eval_model.forward(data['obs'])['action']
+                mu = self._eval_model.forward(obs)['action']
                 loss = self._loss(mu, action)
             else:
                 a_logit = self._learn_model.forward(obs)
