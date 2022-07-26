@@ -144,7 +144,10 @@ class EBM(nn.Module):
         self.activate = nn.ReLU()
         self.conv = nn.Conv2d(cnn_block[-1], 16, 1)
         self.reducer = SpatialSoftArgmax()
-        input_size = 16 * 2
+        if implicit:
+            input_size = 16 * 2 + self.action_shape
+        else:
+            input_size = 16 * 2
         self.net = nn.Sequential(
             nn.Linear(input_size, hidden_size), nn.ReLU(),
             RegressionHead(
