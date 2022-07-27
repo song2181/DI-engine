@@ -1,7 +1,9 @@
-"""Vanilla DFO and EBM are adapted from https://github.com/kevinzakka/ibc.
+"""Explicit BC and implicit BC model.
+   Vanilla DFO and EBM are adapted from https://github.com/kevinzakka/ibc.
    MCMC is adapted from https://github.com/google-research/ibc. 
 """
 
+from ast import IsNot
 from dataclasses import replace
 from typing import Callable, Union, Dict, Optional, Tuple
 from xmlrpc.client import Boolean
@@ -39,6 +41,56 @@ def no_ebm_grad():
         return wrapper
 
     return ebm_disable_grad_wrapper
+
+
+class StochasticOptimizer(ABC):
+
+    def _sample(self, obs: torch.Tensor, num_samples: int) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Helper method for drawing action samples from the uniform random distribution
+        and tiling observations to the same shape as action samples.
+        obs: (B, O)
+        return: (B, N, O), (B, N, A).
+        """
+        # TODO: do not use np.random
+        action_bounds = self.action_bounds.cpu().numpy()
+        size = (obs.shape[0], num_samples, action_bounds.shape[1])
+        action_samples = np.random.uniform(action_bounds[0, :], action_bounds[1, :], size=size)
+        action_samples = torch.as_tensor(action_samples, dtype=torch.float32).to(self.device)
+        tiled_obs = unsqueeze_repeat(obs, num_samples, 1)
+        return tiled_obs, action_samples
+
+    @staticmethod
+    @torch.no_grad()
+    def _get_best_action_sample(obs: torch.Tensor, action_samples: torch.Tensor, ebm: nn.Module):
+        """Return target with highest probability (lowest energy).
+        obs: (B, N, O), action_samples: (B, N, A)
+        return: (B, A).
+        """
+        # (B, N)
+        energies = ebm.forward(obs, action_samples)
+        probs = F.softmax(-1.0 * energies, dim=-1)
+        # (B, )
+        best_idxs = probs.argmax(dim=-1)
+        return action_samples[torch.arange(action_samples.size(0)), best_idxs, :]
+
+    def set_action_bounds(self, action_bounds: np.ndarray):
+        self.action_bounds = torch.as_tensor(action_bounds, dtype=torch.float32).to(self.device)
+
+    @abstractmethod
+    def sample(self, obs: torch.Tensor, ebm: nn.Module) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Create tiled observations and sample counter-negatives for feeding to the InfoNCE objective.
+        obs: (B, O)
+        return: (B, N, O), (B, N, A).
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def infer(self, obs: torch.Tensor, ebm: nn.Module) -> torch.Tensor:
+        """Optimize for the best action conditioned on the current observation.
+        obs: (B, O)
+        return: (B, A).
+        """
+        raise NotImplementedError
 
 
 class SpatialSoftArgmax(nn.Module):
@@ -116,7 +168,7 @@ class ResidualBlock(nn.Module):
 
 
 @MODEL_REGISTRY.register('coordinate_model')
-class EBM(nn.Module):
+class CoordModel(nn.Module):
 
     def __init__(
         self,
@@ -125,7 +177,7 @@ class EBM(nn.Module):
         hidden_size: int = 64,
         hidden_layer_num: int = 1,
         cnn_block: Union[int, SequenceType] = [16],
-        implicit: Boolean = True,
+        implicit: Boolean = False,
         **kwargs,
     ):
         super().__init__()
@@ -146,23 +198,45 @@ class EBM(nn.Module):
         self.reducer = SpatialSoftArgmax()
         if implicit:
             input_size = 16 * 2 + self.action_shape
+            self.net = nn.Sequential(
+                nn.Linear(input_size, hidden_size), nn.ReLU(),
+                RegressionHead(
+                    hidden_size,
+                    1,
+                    hidden_layer_num,
+                    final_tanh=False,
+                )
+            )
         else:
             input_size = 16 * 2
-        self.net = nn.Sequential(
-            nn.Linear(input_size, hidden_size), nn.ReLU(),
-            RegressionHead(
-                hidden_size,
-                2,
-                hidden_layer_num,
-                final_tanh=False,
+            self.net = nn.Sequential(
+                nn.Linear(input_size, hidden_size), nn.ReLU(),
+                RegressionHead(
+                    hidden_size,
+                    2,
+                    hidden_layer_num,
+                    final_tanh=False,
+                )
             )
-        )
 
-    def forward(self, obs: Union[torch.Tensor, Dict[str, torch.Tensor]]) -> Dict[str, torch.Tensor]:
+    def forward(self, obs: torch.Tensor, action: torch.Tensor = None) -> Dict[str, torch.Tensor]:
         # obs: (B, O)
         # action: (B, A)
-        x = self.cnnnet(obs)
-        x = self.activate(self.conv(x))
-        x = self.reducer(x)
-        x = self.net(x)
-        return {'action': x['pred']}
+        if self.implicit:
+            assert action is not None, "For implicit BC, action can not be none."
+            B, N = obs.shape[0], obs.shape[1]
+            obs = obs.reshape((B * N, ) + self.obs_shape)
+            action = action.reshape(B * N, self.action_shape)
+            x = self.cnnnet(obs)
+            x = self.activate(self.conv(x))
+            x = self.reducer(x)
+            x = torch.cat([x, action], -1)
+            x = self.net(x)
+            x['pred'] = x['pred'].reshape(B, N)
+            return x['pred']
+        else:
+            x = self.cnnnet(obs)
+            x = self.activate(self.conv(x))
+            x = self.reducer(x)
+            x = self.net(x)
+            return {'action': x['pred']}
