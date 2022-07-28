@@ -4,26 +4,30 @@ cuda = True
 multi_gpu = False
 
 main_config = dict(
-    exp_name='hopper_medium_expert_ibc_seed0',
+    exp_name='hopper_medium_expert_bc_seed0',
     env=dict(
         env_id='hopper-medium-expert-v0',
         evaluator_env_num=8,
         n_evaluator_episode=8,
-        use_act_scale=False,
+        use_act_scale=True,
         stop_value=6000,
     ),
     policy=dict(
         cuda=cuda,
+        continuous=True,
+        loss_type='mse_loss',
         model=dict(
             obs_shape=11,
             action_shape=3,
-            stochastic_optim=dict(type='dfo', cuda=cuda,)
+            action_space='regression',
+            actor_head_hidden_size=512,
+            actor_head_layer_num=4,
         ),
         learn=dict(
             multi_gpu=multi_gpu,
             train_epoch=30,
             batch_size=256,
-            optim=dict(learning_rate=1e-5,),
+            learning_rate=1e-5,
             learner=dict(hook=dict(log_show_after_iter=1000)),
         ),
         collect=dict(
@@ -43,8 +47,8 @@ create_config = dict(
     ),
     env_manager=dict(type='base',),
     policy=dict(
-        type='ibc',
-        import_names=['ding.policy.ibc'],
+        type='bc',
+        import_names=['ding.policy.bc'],
     ),
 )
 create_config = EasyDict(create_config)
