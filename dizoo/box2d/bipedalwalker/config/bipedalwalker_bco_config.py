@@ -19,7 +19,7 @@ bipedalwalker_bco_config = dict(
         cuda=True,
         continuous=True,
         loss_type='l1_loss',
-        # expert_pho = 0.05,
+        expert_pho=0,
         model=dict(
             obs_shape=24,
             action_shape=4,
@@ -27,12 +27,12 @@ bipedalwalker_bco_config = dict(
             actor_head_hidden_size=128,
         ),
         learn=dict(
-            train_epoch=200,  # If train_epoch is 1, the algorithm will be BCO(0)
+            train_epoch=30,  # If train_epoch is 1, the algorithm will be BCO(0)
             batch_size=128,
             learning_rate=0.001,
             weight_decay=1e-4,
-            decay_epoch=30,
-            decay_rate=1,
+            decay_epoch=1e3,
+            decay_rate=0.5,
             warmup_lr=1e-4,
             warmup_epoch=3,
             optimizer='SGD',
@@ -60,7 +60,7 @@ bipedalwalker_bco_config = dict(
         other=dict(replay_buffer=dict(replay_buffer_size=100000, ), ),
     ),
     bco=dict(
-        learn=dict(idm_batch_size=128, idm_learning_rate=0.001, idm_weight_decay=0, idm_train_epoch=10),
+        learn=dict(idm_batch_size=128, idm_learning_rate=0.001, idm_weight_decay=0, idm_train_epoch=50),
         model=dict(
             action_space='regression',
             idm_encoder_hidden_size_list=[60, 80, 100, 40],
