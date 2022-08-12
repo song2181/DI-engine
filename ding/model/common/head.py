@@ -951,10 +951,14 @@ class RegressionHead(nn.Module):
         x = self.main(x)
         x = self.last(x)
         if self.final_tanh:
+            mask = x.ge(-1) & x.le(1)
             x = self.tanh(x)
+
         if x.shape[-1] == 1 and len(x.shape) > 1:
             x = x.squeeze(-1)
-        return {'pred': x}
+        if mask.sum().item() < x.shape[0] * x.shape[1] * 0.2:
+            mask = torch.full(x.shape, True, dtype=bool)
+        return {'pred': x, 'mask': mask}
 
 
 class ReparameterizationHead(nn.Module):

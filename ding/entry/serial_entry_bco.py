@@ -77,7 +77,7 @@ class InverseDynamicsModel(nn.Module):
                 self.header = RegressionHead(
                     encoder_hidden_size_list[-1],
                     action_shape,
-                    final_tanh=False,
+                    final_tanh=True,
                     activation=activation,
                     norm_type=norm_type
                 )

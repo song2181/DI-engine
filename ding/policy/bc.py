@@ -82,6 +82,7 @@ class BehaviourCloningPolicy(Policy):
         self._learn_model.reset()
         if self._cfg.continuous:
             if self._cfg.loss_type == 'l1_loss':
+                # self._loss = nn.L1Loss()
                 self._loss = nn.L1Loss()
             elif self._cfg.loss_type == 'mse_loss':
                 self._loss = nn.MSELoss()
@@ -102,9 +103,22 @@ class BehaviourCloningPolicy(Policy):
             else:
                 obs, action = data['obs'], data['action'].squeeze()
             if self._cfg.continuous:
-                mu = self._learn_model.forward(data['obs'])['action']
+                output = self._learn_model.forward(data['obs'])
                 # when we use bco, action is predicted by idm, gradient is not expected.
-                loss = self._loss(mu, action.detach())
+                mu, mask = output['action'], output['mask']
+                # statistic the percent of mask
+                mask_percent = 1 - mask.sum().item() / (mu.shape[0] * mu.shape[1])
+                # if mask_percent >0.8, return
+                if mask_percent > 0.8:
+                    return {
+                        'cur_lr': 0,
+                        'total_loss': 0,
+                        'forward_time': 0,
+                        'backward_time': 0,
+                        'sync_time': 0,
+                        'mask_percent': mask_percent
+                    }
+                loss = self._loss(mu.masked_select(mask), action.detach().masked_select(mask))
             else:
                 a_logit = self._learn_model.forward(obs)
                 # when we use bco, action is predicted by idm, gradient is not expected.
@@ -127,10 +141,11 @@ class BehaviourCloningPolicy(Policy):
             'forward_time': forward_time,
             'backward_time': backward_time,
             'sync_time': sync_time,
+            'mask_percent': mask_percent,
         }
 
     def _monitor_vars_learn(self):
-        return ['cur_lr', 'total_loss', 'forward_time', 'backward_time', 'sync_time']
+        return ['cur_lr', 'total_loss', 'forward_time', 'backward_time', 'sync_time', 'mask_percent']
 
     def _init_eval(self):
         if self._cfg.continuous:
@@ -183,7 +198,7 @@ class BehaviourCloningPolicy(Policy):
             self._collect_model = model_wrap(self._model, wrapper_name='eps_greedy_sample')
         self._collect_model.reset()
 
-    def _forward_collect(self, data: Dict[int, Any],**kwargs) -> Dict[int, Any]:
+    def _forward_collect(self, data: Dict[int, Any], **kwargs) -> Dict[int, Any]:
         r"""
         Overview:
             Forward function for collect mode with eps_greedy

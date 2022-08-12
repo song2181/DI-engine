@@ -176,7 +176,7 @@ class ContinuousBC(nn.Module):
         """
         if self.action_space == 'regression':
             x = self.actor(inputs)
-            return {'action': x['pred']}
+            return {'action': x['pred'], 'mask': x['mask']}
         elif self.action_space == 'reparameterization':
             x = self.actor(inputs)
             return {'logit': [x['mu'], x['sigma']]}
