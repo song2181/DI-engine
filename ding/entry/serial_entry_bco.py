@@ -309,37 +309,38 @@ def serial_pipeline_bco(
     learner.call_hook('before_run')
     collect_episode = int(cfg.policy.collect.n_episode * cfg.bco.alpha)
     # agent_data = list()
-    for epoch in range(cfg.policy.learn.train_epoch):
+    # for epoch in range(cfg.policy.learn.train_epoch):
+    init_episode = True
+    while True:
         collect_kwargs = commander.step()
         # Evaluate policy performance
-        if evaluator.should_eval(learner.train_iter):
-            stop, reward = evaluator.eval(learner.save_checkpoint, learner.train_iter, collector.envstep)
-            if stop:
-                break
         # if cfg.policy.continuous:
         #     collect_kwargs = {'eps': 0}
-        if epoch == 0:
+        if init_episode:
             new_data = collector.collect(
                 n_episode=cfg.policy.collect.n_episode, train_iter=learner.train_iter, policy_kwargs=collect_kwargs
             )
+            init_episode = False
         else:
             new_data = collector.collect(
                 n_episode=collect_episode, train_iter=learner.train_iter, policy_kwargs=collect_kwargs
             )
         # agent_data = agent_data + new_data
-        # all_data = new_data + expert_data[:int(len(expert_data) * cfg.policy.expert_pho)]
-        learn_dataset = load_agentdata(new_data)
+        all_data = new_data + expert_data[:int(len(expert_data) * cfg.policy.expert_pho)]
+        learn_dataset = load_agentdata(all_data)
         length = len(learn_dataset.action)
-        for i in range(0, 4):
-            tb_logger.add_histogram("agent_action_" + str(i), learn_dataset.action[:, i], learner.train_iter)
-            tb_logger.add_histogram("expert_action_" + str(i), expert_learn_dataset.action[:, i], learner.train_iter)
-        tb_logger.add_histogram("agent_action", learn_dataset.action, learner.train_iter)
-        tb_logger.add_histogram("expert_action", expert_learn_dataset.action, learner.train_iter)
         l1_loss = nn.L1Loss()
-        action_l1loss = l1_loss(learn_dataset.action, expert_learn_dataset.action[0:length])
-        tb_logger.add_scalar("action/action_l1loss", action_l1loss, learner.train_iter)
-        tb_logger.add_scalar("action/action_agent", learn_dataset.action.mean().item(), learner.train_iter)
-        tb_logger.add_scalar("action/expert_agent", expert_learn_dataset.action.mean().item(), learner.train_iter)
+        # not produced by the same obs , so l1_loss is not reasonable
+        for i in range(0, cfg.policy.model.action_shape):
+            action_l1loss = l1_loss(learn_dataset.action[:, i], expert_learn_dataset.action[0:length, i])
+            tb_logger.add_scalar("action/action_l1loss" + str(i), action_l1loss, learner.train_iter)
+            tb_logger.add_scalar(
+                "action/action_agent" + str(i), learn_dataset.action[:, i].mean().item(), learner.train_iter
+            )
+            tb_logger.add_scalar(
+                "action/expert_agent" + str(i), expert_learn_dataset.action[0:length, i].mean().item(),
+                learner.train_iter
+            )
         learn_dataloader = DataLoader(learn_dataset, cfg.bco.learn.idm_batch_size)
         for i, train_data in enumerate(learn_dataloader):
             idm_loss = learned_model.train(
@@ -362,10 +363,15 @@ def serial_pipeline_bco(
         )  # post_expert_dataset: Only obs and action are reserved for BC. next_obs are deleted
         expert_learn_dataloader = DataLoader(post_expert_dataset, cfg.policy.learn.batch_size)
         # Improve policy using BC
-        for i, train_data in enumerate(expert_learn_dataloader):
-            learner.train(train_data, collector.envstep)
-        if cfg.policy.learn.lr_decay:
-            learner.policy.get_attribute('lr_scheduler').step()
+        for epoch in range(cfg.policy.learn.train_epoch):
+            if evaluator.should_eval(learner.train_iter):
+                stop, reward = evaluator.eval(learner.save_checkpoint, learner.train_iter, collector.envstep)
+                if stop:
+                    break
+            for i, train_data in enumerate(expert_learn_dataloader):
+                learner.train(train_data, collector.envstep)
+            if cfg.policy.learn.lr_decay:
+                learner.policy.get_attribute('lr_scheduler').step()
         if collector.envstep >= max_env_step or learner.train_iter >= max_train_iter:
             break
 
