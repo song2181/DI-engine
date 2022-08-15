@@ -28,7 +28,7 @@ main_config = dict(
             train_epoch=200,
             batch_size=8,
             optim=dict(learning_rate=1e-3, ),
-            learner=dict(hook=dict(log_show_after_iter=10)),
+            learner=dict(hook=dict(log_show_after_iter=10, log_reduce_after_iter=10)),
         ),
         collect=dict(
             normalize_states=False,
@@ -94,6 +94,5 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--train_data', '-t', type=int, default=10)
     parser.add_argument('--seed', '-s', type=int, default=0)
-    # parser.add_argument('--multi_gpu', '-m', type=bool, default=False)
     args = parser.parse_args()
     train(args)
