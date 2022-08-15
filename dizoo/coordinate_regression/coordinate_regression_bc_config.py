@@ -5,7 +5,7 @@ multi_gpu = False
 
 main_config = dict(
     policy=dict(
-        cuda=False,
+        cuda=cuda,
         implicit=False,
         continuous=True,
         loss_type="mse_loss",
@@ -31,12 +31,19 @@ main_config = dict(
             data_path=None,
         ),
         eval=dict(
-            batch_size=4,
+            batch_size=1,
             evaluator=dict(eval_freq=10, multi_gpu=multi_gpu, cfg_type='MetricSerialEvaluatorDict', stop_value=None)
         ),
     ),
     train_dataset=dict(
-        dataset_size=30,
+        dataset_size=10,
+        resolution=(96, 96),
+        pixel_size=7,
+        pixel_color=(0, 255, 0),
+        seed=0,
+    ),
+    eval_dataset=dict(
+        dataset_size=100,
         resolution=(96, 96),
         pixel_size=7,
         pixel_color=(0, 255, 0),
@@ -61,7 +68,24 @@ create_config = dict(
 create_config = EasyDict(create_config)
 create_config = create_config
 
-if __name__ == "__main__":
+# if __name__ == "__main__":
+#     from dizoo.coordinate_regression.entry import serial_pipeline_offline
+#     main_config.exp_name = "CoorReg_bc_ts_" + str(main_config.train_dataset.dataset_size)
+#     serial_pipeline_offline([main_config, create_config], seed=0)
+
+
+def train(args):
     from dizoo.coordinate_regression.entry import serial_pipeline_offline
-    main_config.exp_name = "coordinate_regression_bc_ts_" + str(main_config.train_dataset.dataset_size)
-    serial_pipeline_offline([main_config, create_config], seed=0)
+    import copy
+    main_config.train_dataset.dataset_size = args.train_data
+    main_config.exp_name = "CoorReg_bc_ts_b1_cuda_" + str(main_config.train_dataset.dataset_size)
+    serial_pipeline_offline([copy.deepcopy(main_config), copy.deepcopy(create_config)], seed=0)
+
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--train_data', '-t', type=int, default=10)
+    parser.add_argument('--seed', '-s', type=int, default=0)
+    args = parser.parse_args()
+    train(args)

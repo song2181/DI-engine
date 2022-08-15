@@ -13,7 +13,10 @@ from ding.worker import BaseLearner, MetricSerialEvaluator, IMetric
 from ding.config import read_config, compile_config
 from ding.policy import create_policy
 from ding.utils import set_pkg_seed
+from ding.utils.data import create_dataset
 from dizoo.coordinate_regression.dataset import CoordinateRegression
+from ding.policy.ibc import IBCPolicy
+from ding.model.template.ebm import EBM
 from dizoo.coordinate_regression.plot import plot, eval
 import copy
 import numpy as np
@@ -45,7 +48,7 @@ class CoordinateRegressionMetric(IMetric):
         target_unscaled[:, 1] *= self.cfg.resolution[0] - 1
 
         diff = pred_unscaled - target_unscaled
-        error = np.linalg.norm(diff, axis=1)[0]
+        error = np.asarray(np.linalg.norm(diff, axis=1))[0]
         num_small_err = len(error[error < 1.0])
         return {'mseloss': loss.item(), 'coord_error': error, 'coord_acc': num_small_err}
 
@@ -54,6 +57,16 @@ class CoordinateRegressionMetric(IMetric):
         output = {}
         for k in inputs[0].keys():
             output[k] = sum([t[k] for t in inputs]) / L
+        return output
+
+    def reduce_statistics(self, inputs: List[dict]) -> dict:
+        output = {}
+        for k in inputs[0].keys():
+            output_k = [t[k] for t in inputs]
+            output[k + '_max'] = np.max(output_k)
+            output[k + '_min'] = np.min(output_k)
+            output[k + '_std'] = np.std(output_k)
+            output[k + '_mean'] = np.mean(output_k)
         return output
 
     def gt(self, metric1: dict, metric2: dict) -> bool:
@@ -95,13 +108,18 @@ def serial_pipeline_offline(
 
     # Dataset
     train_dataset = CoordinateRegression(cfg.train_dataset)
+    sampler, shuffle = None, True
+    if cfg.policy.learn.multi_gpu:
+        sampler, shuffle = DistributedSampler(train_dataset), False
     train_dataloader = DataLoader(
         train_dataset,
         cfg.policy.learn.batch_size,
-        shuffle=False,
+        sampler=sampler,
+        shuffle=shuffle,
         collate_fn=lambda x: x,
         pin_memory=cfg.policy.cuda,
     )
+
     test_dataset = CoordinateRegression(cfg.test_dataset)
     test_dataset.exclude(train_dataset.coordinates)
     test_dataloader = DataLoader(
@@ -111,21 +129,22 @@ def serial_pipeline_offline(
         shuffle=True,
         pin_memory=cfg.policy.cuda,
     )
-    eval_config = copy.deepcopy(cfg.test_dataset)
-    eval_config.dataset_size = 100
+    eval_config = copy.deepcopy(cfg.eval_dataset)
     eval_dataset = CoordinateRegression(eval_config)
+    sampler, shuffle = None, True
+    if cfg.policy.learn.multi_gpu:
+        sampler, shuffle = DistributedSampler(eval_dataset), False
     eval_dataloader = DataLoader(
         eval_dataset,
         cfg.policy.eval.batch_size,
         # cfg.test_dataset.dataset_size,
-        shuffle=True,
+        sampler=sampler,
+        shuffle=shuffle,
         pin_memory=cfg.policy.cuda,
     )
     set_pkg_seed(seed, use_cuda=cfg.policy.cuda)
     policy = create_policy(cfg.policy, model=model, enable_field=['learn', 'eval'])
-    # Normalization for state in offlineRL dataset.
-    # if cfg.policy.collect.get('normalize_states', None):
-    #     policy.set_norm_statistics({'action_bounds': train_dataset.get_target_bounds})
+
     if cfg.policy.implicit:
         policy._stochastic_optimizer.set_action_bounds(train_dataset.get_target_bounds())
 
@@ -136,9 +155,6 @@ def serial_pipeline_offline(
     evaluator = MetricSerialEvaluator(
         cfg.policy.eval.evaluator, [eval_dataloader, eval_metric], policy.eval_mode, tb_logger, exp_name=cfg.exp_name
     )
-    # evaluator = InteractionSerialEvaluator(
-    #     cfg.policy.eval.evaluator, evaluator_env, policy.eval_mode, tb_logger, exp_name=cfg.exp_name
-    # )
     # ==========
     # Main loop
     # ==========
@@ -146,26 +162,39 @@ def serial_pipeline_offline(
     learner.call_hook('before_run')
     stop = False
 
-    for epoch in tqdm(range(cfg.policy.learn.train_epoch)):
-        # Evaluate policy per epoch
-
-        stop, reward = evaluator.eval(learner.save_checkpoint, learner.train_iter)
-
-        for train_data in tqdm(train_dataloader):
-            learner.train(train_data)
-
-    # plot final image
     test_coords = test_dataset.coordinates
     train_coords = train_dataset.coordinates
-    train_dataloader = DataLoader(
+    train_eval_dataloader = DataLoader(
         train_dataset,
         cfg.policy.learn.batch_size,
         shuffle=False,
         # collate_fn=lambda x: x,
         pin_memory=cfg.policy.cuda,
     )
+    if not os.path.exists('img'):
+        os.mkdir('img')
+        if not os.path.exists('img/' + str(cfg.exp_name)):
+            os.mkdir('img/' + str(cfg.exp_name))
+         
+    for epoch in tqdm(range(cfg.policy.learn.train_epoch)):
+        # Evaluate policy per epoch
+        if cfg.policy.learn.multi_gpu:
+            train_dataloader.sampler.set_epoch(epoch)
+            eval_dataloader.sampler.set_epoch(epoch)
 
-    errors = eval(train_dataloader, test_dataloader, policy.eval_mode)
-    plot(train_coords, test_coords, errors, cfg.test_dataset.resolution, 'img.png', 100, 140)
+        if evaluator.should_eval(learner.train_iter):
+            stop, reward = evaluator.eval(learner.save_checkpoint, learner.train_iter)
+
+        for train_data in tqdm(train_dataloader):
+            learner.train(train_data)
+
+        # plot test image
+        if epoch % 20 == 0:
+            errors = eval(train_eval_dataloader, test_dataloader, policy.eval_mode)
+            plot(
+                train_coords, test_coords, errors, cfg.test_dataset.resolution,
+                'img/' + str(cfg.exp_name) + '/img' + str(learner.train_iter) + '.png', 100, 140
+            )
+
     learner.call_hook('after_run')
-    return policy
+    return policy, stop

@@ -240,3 +240,35 @@ class CoordModel(nn.Module):
             x = self.reducer(x)
             x = self.net(x)
             return {'action': x['pred']}
+
+
+@MODEL_REGISTRY.register('coord_arebm')
+class AutoregressiveEBM(nn.Module):
+
+    def __init__(
+        self,
+        obs_shape: int,
+        action_shape: int,
+        hidden_size: int = 512,
+        hidden_layer_num: int = 4,
+        cnn_block: Union[int, SequenceType] = [16],
+        implicit: Boolean = False,
+        **kwargs,
+    ):
+        super().__init__()
+        self._implicit = implicit
+        self.ebm_list = nn.ModuleList()
+        for i in range(action_shape):
+            self.ebm_list.append(CoordModel(obs_shape, i + 1, hidden_size, hidden_layer_num, cnn_block, implicit))
+
+    def forward(self, obs, action):
+        # obs: (B, N, O)
+        # action: (B, N, A)
+        # return: (B, N, A)
+
+        # (B, N)
+        output_list = []
+        for i, ebm in enumerate(self.ebm_list):
+            output_list.append(ebm(obs, action[..., :i + 1]))
+        # (B, N, A)
+        return torch.stack(output_list, axis=-1)

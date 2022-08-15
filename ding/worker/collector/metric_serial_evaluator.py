@@ -21,6 +21,10 @@ class IMetric(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    def reduce_statistics(self, inputs: List[Any]) -> Any:
+        raise NotImplementedError
+
+    @abstractmethod
     def gt(self, metric1: Any, metric2: Any) -> bool:
         """
         Overview:
@@ -185,7 +189,8 @@ class MetricSerialEvaluator(ISerialEvaluator):
                 inputs, label = to_tensor(batch_data)
                 policy_output = self._policy.forward(inputs)
                 eval_results.append(self._metric.eval(policy_output, label))
-            avg_eval_result = self._metric.reduce_mean(eval_results)
+            # avg_eval_result = self._metric.reduce_mean(eval_results)
+            avg_eval_result = self._metric.reduce_statistics(eval_results)
             if self._cfg.multi_gpu:
                 device = self._policy.get_attribute('device')
                 for k in avg_eval_result.keys():
@@ -208,9 +213,11 @@ class MetricSerialEvaluator(ISerialEvaluator):
             if k in ['train_iter', 'ckpt_name']:
                 continue
             if not np.isscalar(v):
-                continue
-            self._tb_logger.add_scalar('{}_iter/'.format(self._instance_name) + k, v, train_iter)
-            self._tb_logger.add_scalar('{}_step/'.format(self._instance_name) + k, v, envstep)
+                self._tb_logger.add_histogram('{}_iter/'.format(self._instance_name) + k, v, train_iter)
+            else:
+                self._tb_logger.add_scalar('{}_iter/'.format(self._instance_name) + k, v, train_iter)
+            # self._tb_logger.add_scalar('{}_step/'.format(self._instance_name) + k, v, envstep)
+
         if self._metric.gt(avg_eval_result, self._max_avg_eval_result):
             if save_ckpt_fn:
                 save_ckpt_fn('ckpt_best.pth.tar')

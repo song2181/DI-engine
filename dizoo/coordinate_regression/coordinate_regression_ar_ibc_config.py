@@ -1,6 +1,6 @@
 from easydict import EasyDict
 
-cuda = True
+cuda = False
 multi_gpu = False
 
 main_config = dict(
@@ -15,7 +15,7 @@ main_config = dict(
             hidden_layer_num=2,
             implicit=True,
             stochastic_optim=dict(
-                type='dfo',
+                type='ardfo',
                 cuda=cuda,
                 train_samples=64,
                 inference_samples=2 ** 11,
@@ -34,7 +34,7 @@ main_config = dict(
         ),
         eval=dict(
             batch_size=1,
-            evaluator=dict(eval_freq=1, multi_gpu=multi_gpu, cfg_type='MetricSerialEvaluatorDict', stop_value=None)
+            evaluator=dict(eval_freq=10, multi_gpu=multi_gpu, cfg_type='MetricSerialEvaluatorDict', stop_value=None)
         ),
     ),
     train_dataset=dict(
@@ -66,7 +66,7 @@ create_config = dict(
         type='ibc',
         import_names=['ding.policy.ibc'],
         model=dict(
-            type='coordinate_model',
+            type='coord_arebm',
             import_names=['ding.model.template.coordinate_regression'],
         ),
     ),
@@ -76,7 +76,7 @@ create_config = create_config
 
 # if __name__ == "__main__":
 #     from dizoo.coordinate_regression.entry import serial_pipeline_offline
-#     main_config.exp_name = "coordinate_regression_ibc_ts_" + str(main_config.train_dataset.dataset_size)+"-1"
+#     main_config.exp_name = "coordinate_regression_aribc_ts_" + str(main_config.train_dataset.dataset_size)+'mg'
 #     serial_pipeline_offline([main_config, create_config], seed=0)
 
 
@@ -84,8 +84,7 @@ def train(args):
     from dizoo.coordinate_regression.entry import serial_pipeline_offline
     import copy
     main_config.train_dataset.dataset_size = args.train_data
-    main_config.policy.model.stochastic_optim.inference_samples = args.infer_samples
-    main_config.exp_name = "CoorReg_ibc_ts_" + str(args.train_data) + '_is' + str(args.infer_samples)
+    main_config.exp_name = "CoorReg_ar_ibc_ts_denoise" + str(main_config.train_dataset.dataset_size)
     serial_pipeline_offline([copy.deepcopy(main_config), copy.deepcopy(create_config)], seed=0)
 
 
@@ -94,6 +93,5 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--train_data', '-t', type=int, default=10)
     parser.add_argument('--seed', '-s', type=int, default=0)
-    parser.add_argument('--infer_samples', '-i', type=int, default=2 ** 11)
     args = parser.parse_args()
     train(args)

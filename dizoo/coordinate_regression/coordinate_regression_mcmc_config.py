@@ -1,9 +1,10 @@
 from easydict import EasyDict
 
 cuda = True
-multi_gpu = False
+multi_gpu = True
 
 main_config = dict(
+    exp_name='coor_regre_mcmc_multi_gpu',
     policy=dict(
         cuda=cuda,
         implicit=True,
@@ -15,9 +16,10 @@ main_config = dict(
             hidden_layer_num=2,
             implicit=True,
             stochastic_optim=dict(
-                type='dfo',
+                type='mcmc',
                 cuda=cuda,
                 train_samples=64,
+                noise_scale=0.33,
                 inference_samples=2 ** 11,
             )
         ),
@@ -34,11 +36,11 @@ main_config = dict(
         ),
         eval=dict(
             batch_size=1,
-            evaluator=dict(eval_freq=1, multi_gpu=multi_gpu, cfg_type='MetricSerialEvaluatorDict', stop_value=None)
+            evaluator=dict(eval_freq=10, multi_gpu=multi_gpu, cfg_type='MetricSerialEvaluatorDict', stop_value=None)
         ),
     ),
     train_dataset=dict(
-        dataset_size=30,
+        dataset_size=10,
         resolution=(96, 96),
         pixel_size=7,
         pixel_color=(0, 255, 0),
@@ -74,18 +76,16 @@ create_config = dict(
 create_config = EasyDict(create_config)
 create_config = create_config
 
+
 # if __name__ == "__main__":
 #     from dizoo.coordinate_regression.entry import serial_pipeline_offline
-#     main_config.exp_name = "coordinate_regression_ibc_ts_" + str(main_config.train_dataset.dataset_size)+"-1"
+#     main_config.exp_name = "coordinate_regression_mcmc_ts_" + str(main_config.train_dataset.dataset_size)+"-1"
 #     serial_pipeline_offline([main_config, create_config], seed=0)
-
-
 def train(args):
     from dizoo.coordinate_regression.entry import serial_pipeline_offline
     import copy
     main_config.train_dataset.dataset_size = args.train_data
-    main_config.policy.model.stochastic_optim.inference_samples = args.infer_samples
-    main_config.exp_name = "CoorReg_ibc_ts_" + str(args.train_data) + '_is' + str(args.infer_samples)
+    main_config.exp_name = "CoorReg_mcmc_ts" + str(args.train_data)
     serial_pipeline_offline([copy.deepcopy(main_config), copy.deepcopy(create_config)], seed=0)
 
 
@@ -94,6 +94,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--train_data', '-t', type=int, default=10)
     parser.add_argument('--seed', '-s', type=int, default=0)
-    parser.add_argument('--infer_samples', '-i', type=int, default=2 ** 11)
+    # parser.add_argument('--multi_gpu', '-m', type=bool, default=False)
     args = parser.parse_args()
     train(args)

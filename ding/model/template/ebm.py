@@ -187,18 +187,17 @@ class AutoRegressiveDFO(DFO):
 
                 # Resample with replacement.
                 idxs = torch.multinomial(probs, self.inference_samples, replacement=True)
-                action_samples = action_samples[
-                    torch.arange(action_samples.size(0)).unsqueeze(-1), idxs]
+                action_samples = action_samples[torch.arange(action_samples.size(0)).unsqueeze(-1), idxs]
 
                 # Add noise and clip to target bounds.
-                action_samples[..., j] = action_samples[..., j
-                    ] + torch.randn_like(action_samples[..., j]) * noise_scale
+                action_samples[..., j] = action_samples[..., j] + torch.randn_like(action_samples[..., j]) * noise_scale
 
-                action_samples[..., j] = action_samples[..., j
-                    ].clamp(min=self.action_bounds[0, j], max=self.action_bounds[1, j])
+                action_samples[..., j] = action_samples[..., j].clamp(
+                    min=self.action_bounds[0, j], max=self.action_bounds[1, j]
+                )
 
             noise_scale *= self.noise_shrink
-        
+
         # (B, N)
         energies = ebm.forward(obs, action_samples)[..., -1]
         probs = F.softmax(-1.0 * energies, dim=-1)
@@ -308,7 +307,7 @@ class MCMC(StochasticOptimizer):
         """
         action = nn.Parameter(action)
         energy = ebm.forward(obs, action).sum()
-        # `create_graph` set to `True` when second order derivative 
+        # `create_graph` set to `True` when second order derivative
         #  is needed i.e, d(de/da)/d_param
         return torch.autograd.grad(energy, action, create_graph=create_graph)[0]
 
@@ -363,10 +362,10 @@ class MCMC(StochasticOptimizer):
 
         delta_action = stepsize * de_dact
         delta_action_clip = self.delta_action_clip * 0.5 * (self.action_bounds[1] - self.action_bounds[0])
-        delta_action = delta_action.clamp(min=-delta_action_clip, max=delta_action_clip)
+        delta_action = delta_action.clamp(min=-delta_action_clip[0], max=delta_action_clip[1])
 
         action = action - delta_action
-        action = action.clamp(min=self.action_bounds[0], max=self.action_bounds[1])
+        action = action.clamp(min=self.action_bounds[0, 0], max=self.action_bounds[1, 1])
 
         return action
 
@@ -475,9 +474,9 @@ class AutoregressiveEBM(nn.Module):
         **kwargs,
     ):
         super().__init__()
-        self.ebm_list = nn.ModuleList() 
+        self.ebm_list = nn.ModuleList()
         for i in range(action_shape):
-            self.ebm_list.append(EBM(obs_shape, i+1, hidden_size, hidden_layer_num))
+            self.ebm_list.append(EBM(obs_shape, i + 1, hidden_size, hidden_layer_num))
 
     def forward(self, obs, action):
         # obs: (B, N, O)
@@ -487,6 +486,6 @@ class AutoregressiveEBM(nn.Module):
         # (B, N)
         output_list = []
         for i, ebm in enumerate(self.ebm_list):
-            output_list.append(ebm(obs, action[..., :i+1]))
+            output_list.append(ebm(obs, action[..., :i + 1]))
         # (B, N, A)
         return torch.stack(output_list, axis=-1)
