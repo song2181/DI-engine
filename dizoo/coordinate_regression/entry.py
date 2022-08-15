@@ -162,20 +162,11 @@ def serial_pipeline_offline(
     learner.call_hook('before_run')
     stop = False
 
-    test_coords = test_dataset.coordinates
-    train_coords = train_dataset.coordinates
-    train_eval_dataloader = DataLoader(
-        train_dataset,
-        cfg.policy.learn.batch_size,
-        shuffle=False,
-        # collate_fn=lambda x: x,
-        pin_memory=cfg.policy.cuda,
-    )
     if not os.path.exists('img'):
         os.mkdir('img')
         if not os.path.exists('img/' + str(cfg.exp_name)):
             os.mkdir('img/' + str(cfg.exp_name))
-         
+
     for epoch in tqdm(range(cfg.policy.learn.train_epoch)):
         # Evaluate policy per epoch
         if cfg.policy.learn.multi_gpu:
@@ -188,13 +179,22 @@ def serial_pipeline_offline(
         for train_data in tqdm(train_dataloader):
             learner.train(train_data)
 
-        # plot test image
-        if epoch % 20 == 0:
-            errors = eval(train_eval_dataloader, test_dataloader, policy.eval_mode)
-            plot(
-                train_coords, test_coords, errors, cfg.test_dataset.resolution,
-                'img/' + str(cfg.exp_name) + '/img' + str(learner.train_iter) + '.png', 100, 140
-            )
+    # plot final test data image
+    test_coords = test_dataset.coordinates
+    train_coords = train_dataset.coordinates
+    # for test input
+    train_eval_dataloader = DataLoader(
+        train_dataset,
+        cfg.policy.learn.batch_size,
+        shuffle=False,
+        # collate_fn=lambda x: x,
+        pin_memory=cfg.policy.cuda,
+    )
+    errors = eval(train_eval_dataloader, test_dataloader, policy.eval_mode)
+    plot(
+        train_coords, test_coords, errors, cfg.test_dataset.resolution, 'img/' + str(cfg.exp_name) + '/img.png', 100,
+        140
+    )
 
     learner.call_hook('after_run')
     return policy, stop
