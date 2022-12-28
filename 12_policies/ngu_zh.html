@@ -127,9 +127,29 @@
                   <p>Tree Nested PyTorch Tensor Lib</p>
                 </a>
                 <a class="doc-dropdown-option nav-dropdown-item"
+                  href="https://github.com/opendilab/DI-sheep" target="_blank">
+                  <span class="dropdown-title">DI-sheep </span>
+                  <p>Deep Reinforcement Learning + 3 Tiles Game</p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item"
                   href="https://github.com/opendilab/awesome-model-based-RL" target="_blank">
                   <span class="dropdown-title">awesome-model-based-RL </span>
                   <p>A curated list of awesome model based RL resources (continually updated)</p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item"
+                  href="https://github.com/opendilab/awesome-decision-transformer" target="_blank">
+                  <span class="dropdown-title">awesome-decision-transformer </span>
+                  <p>A curated list of Decision Transformer resources (continually updated)</p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item"
+                  href="https://github.com/opendilab/awesome-exploration-rl" target="_blank">
+                  <span class="dropdown-title">awesome-exploration-rl </span>
+                  <p>A curated list of awesome exploration RL resources (continually updated)</p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item"
+                  href="https://github.com/opendilab/awesome-multi-modal-reinforcement-learning" target="_blank">
+                  <span class="dropdown-title">awesome-multi-modal-reinforcement-learning </span>
+                  <p>A curated list of Multi-Modal Reinforcement Learning resources (continually updated)</p>
                 </a>
               </div>
           </li>
@@ -348,6 +368,9 @@ NGU 在 Atari-57 中的所有难于探索的任务中性能翻倍，同时在其
 <h2>重要的实现细节<a class="headerlink" href="#id5" title="Permalink to this headline">¶</a></h2>
 <p>1. 奖励归一化。在通过上面所述的算法计算得到局内内在奖励后，由于在智能体学习的不同阶段和不同的环境下，它的幅度是变化剧烈的，如果直接用作后续的计算，很容易造成学习的不稳定。在我们
 的实现中，是按照下面的最大最小归一化公式 归一化到 [0,1] 之间:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>episodic_reward = (episodic_reward - episodic_reward.min()) / (episodic_reward.max() - episodic_reward.min() + 1e-11)，
+</pre></div>
+</div>
 <p>其中 episodic_reward 是一个 mini-batch 计算得到的局内内在奖励。我们也分析了其他归一化方式的效果。</p>
 <blockquote>
 <div><p>方法1: transform to batch mean1: erbm1。

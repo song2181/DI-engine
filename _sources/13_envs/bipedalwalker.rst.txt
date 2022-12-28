@@ -18,22 +18,26 @@ Installation Method
 Just install the gym and box2d libraries, which can be installed by pip or combined with DI-engine
 
 .. code:: shell
+
    # Method1: Install Directly
    pip install gym
    pip install box2d
    # Method2: Install with DI-engine requirements
    cd DI-engine
    pip install ".[common_env]"
+
 Verify Installation
 -------------------
 
 After the installation is complete, you can verify that the installation was successful by running the following command on the Python command line:
 
 .. code:: python
+
    import gym
    env = gym.make('BipedalWalker-v3')
    obs = env.reset()
    print(obs.shape)  # (24,)
+
 Image
 -------
 
@@ -58,7 +62,7 @@ Action Space
 
 - These four-dimensional continuous vectors control the torques of the robot's four leg joints, respectively. The robot has a total of 2 legs, each leg has two joints (waist joint and knee joint), a total of 4 joints need to be controlled.
 
-Bonus Space
+Reward Space
 ------------
 
 - The robot will get a negative reward for applying motor torque at each step, and a positive reward for each step forward. If it successfully moves to the farthest point, it will get a reward of more than 300 points. If the robot falls on the way, it will get -100 points and the game will end. The reward is a \ float\ numeric value in the range [-400, 300].
@@ -86,9 +90,10 @@ Random Seed
 Store Video
 ------------
 
-After the environment is created, but before reset, call the  \ ``enable_save_replay``\ method to specify the path to save the game replay. The environment will automatically save the local video files after each episode ends. (The default call \ ``gym.wrapper.Monitor``\ implementation, depends on \ ``ffmpeg``\), the code shown below will run an environment episode and save the results of this episode in the form \ ``./video/xxx.mp4``\ in a file like this:
+After the environment is created, but before reset, call the  \ ``enable_save_replay``\ method to specify the path to save the game replay. The environment will automatically save the local video files after each episode ends. (The default call \ ``gym.wrappers.RecordVideo``\ implementation), the code shown below will run an environment episode and save the results of this episode in a folder \ ``./video/``\ :
 
 .. code:: python
+
     from easydict import EasyDict
     from dizoo.box2d.bipedalwalker.envs import BipedalWalkerEnv
     import numpy as np
@@ -100,7 +105,7 @@ After the environment is created, but before reset, call the  \ ``enable_save_re
        action = np.random.rand(24)
        timestep = env.step(action)
        if timestep.done:
-           print('Episode is over, final eval reward is: {}'.format(timestep.info['final_eval_reward']))
+           print('Episode is over, eval episode return is: {}'.format(timestep.info['eval_episode_return']))
            break
            
            
@@ -185,5 +190,6 @@ Benchmark Algorithm Performance
 - Average reward more than or equal to 300 is considered as a better agent
 
     - BipedalWalker + TD3
+
     .. image:: images/bipedalwalker_td3.png
        :align: center
