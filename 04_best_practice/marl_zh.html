@@ -753,7 +753,7 @@
 <p>当用户自定义的多智能体环境构建完成后，想要使用 DI-engine 中已经集成的多智能体算法进行基线的训练，只需要找到想调用的多智能体算法配置的模板，然后修改跟环境相关的参数即可。</p>
 <section id="id9">
 <h2>QMIX<a class="headerlink" href="#id9" title="Permalink to this headline">¶</a></h2>
-<p>例如，如果想要使用 QMIX 算法，那么首先找到 <code class="docutils literal notranslate"><span class="pre">PettingZoo</span></code> 下的 QMIX config <a href="#id13"><span class="problematic" id="id14">`ptz_simple_spread_qmix_config.py https://github.com/opendilab/DI-engine/blob/main/dizoo/petting_zoo/config/ptz_simple_spread_qmix_config.py&gt;`_</span></a> 文件，然后修改以下与环境相关的内容：</p>
+<p>例如，如果想要使用 QMIX 算法，那么首先找到 <code class="docutils literal notranslate"><span class="pre">PettingZoo</span></code> 下的 QMIX config <a class="reference external" href="https://github.com/opendilab/DI-engine/blob/main/dizoo/petting_zoo/config/ptz_simple_spread_qmix_config.py">ptz_simple_spread_qmix_config.py</a> 文件，然后修改以下与环境相关的内容：</p>
 <p>需要修改的内容有以下几点：</p>
 <ul class="simple">
 <li><p>main_config 的 env 属性：其中包含需要传递给实现的多智能体环境类的 <code class="docutils literal notranslate"><span class="pre">__init__</span></code> 函数的参数，包括子环境的的名称、智能体数量等；</p></li>
